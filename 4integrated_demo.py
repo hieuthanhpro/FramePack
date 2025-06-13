@@ -24,7 +24,7 @@ from diffuser.diffusion import DifussionHandler
 from extractor.scene_extractor import extract_scenes_with_gemini
 
 # Đăng nhập Hugging Face
-HF_TOKEN = os.getenv("HF_TOKEN", "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")
+HF_TOKEN = os.getenv("HF_TOKEN", "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")
 login(token=HF_TOKEN, add_to_git_credential=True)
 
 # Thiết lập thư mục cache Hugging Face
@@ -119,7 +119,7 @@ def init_image_model():
             model_id="black-forest-labs/FLUX.1-dev",
             local_model_path='',
             lora_id='lora_weights/self/test',
-            local_lora_path='/home/naver/Documents/HieuDM/PycharmProjects/manga-generation-diffusion/lora_weights/self/test/little-girl-v1.safetensors',
+            local_lora_path='/home/naver/Documents/HieuDM/manga_gen/FramePack/little-match-girl/little-match-girl.safetensors',
             use_lora=True,
             use_local_model=True,
             is_save_model=False,
@@ -429,8 +429,6 @@ def generate_images(prompt, seeds_input, num_inference_steps, guidance_scale, im
     
     except Exception as e:
         return f"Error: {str(e)}", [], None
-    finally:
-        cleanup_models()
 
 # Hàm xử lý phân tích câu chuyện
 def process_story(story_text, main_character):
@@ -494,6 +492,7 @@ with gr.Blocks(css=css) as demo:
                         placeholder="Enter the main character's name..."
                     )
                     story_submit = gr.Button("Extract Scenes")
+                    story_cleanup = gr.Button("Cleanup Models")
                 with gr.Column():
                     story_output = gr.Markdown(label="Extracted Scenes")
                     story_state = gr.State()  # Store scene prompts
@@ -502,6 +501,11 @@ with gr.Blocks(css=css) as demo:
                 fn=process_story,
                 inputs=[story_input, character_input],
                 outputs=[story_output, story_state]
+            )
+            story_cleanup.click(
+                fn=cleanup_models,
+                inputs=[],
+                outputs=[story_output]
             )
 
         # Tab 2: Sinh ảnh tĩnh
@@ -529,6 +533,7 @@ with gr.Blocks(css=css) as demo:
                         value="/home/naver/Documents/HieuDM/hieut/demo"
                     )
                     img_submit = gr.Button("Generate Images")
+                    img_cleanup = gr.Button("Cleanup Models")
                 
                 with gr.Column():
                     img_output_text = gr.Markdown(label="Status")
@@ -545,6 +550,11 @@ with gr.Blocks(css=css) as demo:
                 inputs=[img_prompt, img_seeds, img_steps, img_guidance, img_width, img_height, img_save_dir],
                 outputs=[img_output_text, img_output_gallery, img_output_files]
             )
+            img_cleanup.click(
+                fn=cleanup_models,
+                inputs=[],
+                outputs=[img_output_text]
+            )
 
         # Tab 3: Sinh video
         with gr.Tab("Generate Video"):
@@ -552,6 +562,8 @@ with gr.Blocks(css=css) as demo:
                 with gr.Column():
                     input_image = gr.Image(sources='upload', type="numpy", label="Image", height=320)
                     prompt = gr.Textbox(label="Prompt", value='')
+                    vid_scene_id = gr.Number(label="Scene ID (from Story Extraction)", value=1, precision=0)
+                    vid_load_prompt = gr.Button("Load Prompt from Scene")
                     example_quick_prompts = gr.Dataset(
                         samples=[
                             ['The girl dances gracefully, with clear movements, full of charm.'],
@@ -572,6 +584,7 @@ with gr.Blocks(css=css) as demo:
                     with gr.Row():
                         start_button = gr.Button(value="Start Generation")
                         end_button = gr.Button(value="End Generation", interactive=False)
+                        vid_cleanup = gr.Button("Cleanup Models")
 
                     with gr.Group():
                         use_teacache = gr.Checkbox(
@@ -644,7 +657,7 @@ with gr.Blocks(css=css) as demo:
                             step=1,
                             info="Lower means better quality. 0 is uncompressed. Change to 16 if you get black outputs."
                         )
-                
+                    
                 with gr.Column():
                     preview_image = gr.Image(label="Next Latents", height=200, visible=False)
                     result_video = gr.Video(
@@ -661,20 +674,30 @@ with gr.Blocks(css=css) as demo:
                     progress_desc = gr.Markdown('', elem_classes='no-generating-animation')
                     progress_bar = gr.HTML('', elem_classes='no-generating-animation')
 
-            ips = [
-                input_image, prompt, n_prompt, seed, total_second_length,
-                latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation,
-                use_teacache, mp4_crf
+        vid_load_prompt.click(
+            fn=select_prompt,
+            inputs=[vid_scene_id, gr.State(value="image_to_video"), story_state],
+            outputs=prompt
+        )
+        ips = [
+            input_image, prompt, n_prompt, seed, total_second_length,
+            latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation,
+            use_teacache, mp4_crf
+        ]
+        start_button.click(
+            fn=process_video,
+            inputs=ips,
+            outputs=[
+                result_video, preview_image, progress_desc,
+                progress_bar, start_button, end_button
             ]
-            start_button.click(
-                fn=process_video,
-                inputs=ips,
-                outputs=[
-                    result_video, preview_image, progress_desc,
-                    progress_bar, start_button, end_button
-                ]
-            )
-            end_button.click(fn=end_process)
+        )
+        end_button.click(fn=end_process)
+        vid_cleanup.click(
+            fn=cleanup_models,
+            inputs=[],
+            outputs=[progress_desc]
+        )
 
 demo.launch(
     server_name=args.server,
